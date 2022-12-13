@@ -1,0 +1,55 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: git-clone
+  description: Clone git repository
+spec:
+  workspaces:
+  - name: workdir
+    mountPath: /usr/src
+  steps:
+  - name: test
+    image: alpine/git
+    script:
+      #!/bin/sh
+      git clone https://github.com/kiniou/turbo-giggle.git /usr/src
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: tests
+  description: run tests
+spec:
+  workspaces:
+  - name: workdir
+    mountPath: /usr/src
+  steps:
+  - name: test
+    image: kiniou/demo:main
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: tekton-demo
+spec:
+  description: |
+    This pipeline clones a git repo, then echoes the README file to the stout.
+  workspaces:
+  - name: workdir
+    description: |
+      This workspace contains the cloned repo files, so they can be read by the
+      next task.
+  tasks:
+  - name: fetch-source
+    taskRef:
+      name: git-clone
+    workspaces:
+    - name: workdir
+      workspace: workdir
+  - name: tests-slow
+    runAfter: ["fetch-source"]
+    taskRef:
+      name: tests
+    workspaces:
+    - name: workdir
+      workspace: workdir

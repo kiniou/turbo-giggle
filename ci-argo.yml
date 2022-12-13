@@ -1,0 +1,96 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: argo-demo-
+spec:
+  entrypoint: main
+
+  arguments:
+    parameters:
+    - name: revision
+      value: main
+    - name: repository
+      value: "https://github.com/kiniou/turbo-giggle.git"
+
+  volumeClaimTemplates:
+  - metadata:
+      name: repo
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 1Gi
+
+  templates:
+  - name: main
+    inputs:
+      parameters:
+      - name: revision
+    dag:
+      tasks:
+      - name: clone
+        template: clone
+        arguments:
+          parameters:
+          - name: repository
+            value: "{{workflow.parameters.repository}}"
+          - name: revision
+            value: "{{workflow.parameters.revision}}"
+      - name: build
+        template: build
+        dependencies: [ clone ]
+      - name: test
+        template: test
+        dependencies: [ build ]
+        arguments:
+          parameters:
+          - name: testsuite
+            value: "{{item}}"
+        withItems:
+        - basic
+        - fixtured
+        - slow
+
+  - name: clone
+    inputs:
+      parameters:
+      - name: revision
+      - name: repository
+    script:
+      image: alpine/git
+      volumeMounts:
+      - name: repo
+        mountPath: /repo
+      command: [sh]
+      source: |
+          set -ex
+          git clone {{inputs.parameters.repository}} /repo
+          find /repo
+
+  - name: build
+    container:
+      image: gcr.io/kaniko-project/executor:latest
+      volumeMounts:
+      - name: repo
+        mountPath: /repo
+      workingDir: /repo
+      args: [
+      "--context", "dir:///repo",
+      "--dockerfile", "./Dockerfile",
+      "--insecure",
+      "--destination", "minikube:5000/demo:main",
+      ]
+
+  - name: test
+    inputs:
+      parameters:
+      - name: testsuite
+    script:
+      # FIXME: should be minikube:5000/demo:main but i'm struggling pulling the
+      # resulting image from the [insecure] minikube registry itself
+      image: kiniou/demo:main
+      volumeMounts:
+      - name: repo
+        mountPath: /usr/src
+      args: ["-m {{inputs.parameters.testsuite}}"]
+        
